@@ -16,18 +16,41 @@ def GetMessages(ChatID):
         pass
     # NOTE(dave): No dash: private chat
     else:
+        MESSAGE_TIMESTAMP = 0
+        MESSAGE_CONTENT = 1
+        MESSAGE_FROM_ME = 2
+        MESSAGE_QUOTED = 3
+        MESSAGE_KEY_ID = 4
+        QUOTE_ID = 0
+        QUOTE_KEY_ID = 1
+
         Self = 'You'
         Other = ChatID
         try:
             Other = ContactNames[ChatID]
-        except:
-            pass
-        Cur.execute('SELECT timestamp,data,key_from_me FROM messages WHERE key_remote_jid="{ID}" ORDER BY _id ASC'.format(ID=ChatID))
+        except: pass
+        # NOTE(dave): we need to get both message data and quoted messages' info
+        Cur.execute('SELECT timestamp,data,key_from_me,quoted_row_id,key_id FROM messages WHERE key_remote_jid="{ID}" ORDER BY _id ASC'.format(ID=ChatID))
         RawMessages = Cur.fetchall()
+        Cur.execute('SELECT _id,key_id FROM messages_quotes WHERE key_remote_jid="{ID}" ORDER BY _id ASC'.format(ID=ChatID))
+        RawQuotedMessages = Cur.fetchall()
+        QuotedIndexes = {}
 
         for Message in RawMessages[1:]:
-            Sender = Self if Message[2] else Other
-            Messages.append([Sender, Message[1], Message[0], -1])
+            # NOTE(dave): We keep track of quoted messages as we find them
+            if len(RawQuotedMessages) > 0 and \
+                RawQuotedMessages[0][QUOTE_KEY_ID] == Message[MESSAGE_KEY_ID]:
+                RawQuote = RawQuotedMessages.pop(0)
+                QuotedIndexes[RawQuote[QUOTE_ID]] = len(Messages)
+
+            Sender = Self if Message[MESSAGE_FROM_ME] else Other
+            if Message[MESSAGE_QUOTED]:
+                pass
+            QuotedMessage = -1
+            try:
+                QuotedMessage = QuotedIndexes[Message[MESSAGE_QUOTED]]
+            except: pass
+            Messages.append([Sender, Message[MESSAGE_CONTENT], Message[MESSAGE_TIMESTAMP], QuotedMessage])
     return Messages
 
 
@@ -46,17 +69,22 @@ def PlainTestChat(ChatID):
         OutPath += ChatID
     try:
         makedirs(OutPath)
-    except:
-        pass
+    except: pass
     # TODO(dave): divide long chats in different files
     with open(OutPath + '/00.txt', 'wb') as f:
         for Message in Messages:
             Time = datetime.fromtimestamp(Message[MESSAGE_TIMESTAMP]/1000).strftime("%Y-%m-%d %H:%M:%S")
-            Sender = Message[MESSAGE_SENDER] if Message[MESSAGE_SENDER] != "MeMedesimo" else "You"
+            Sender = Message[MESSAGE_SENDER].replace('@s.whatsapp.net','') if Message[MESSAGE_SENDER] != "MeMedesimo" else "You"
             # TODO(dave): Specify type of data
             # TODO(dave): Manage data
             Content = Message[MESSAGE_CONTENT] if Message[MESSAGE_CONTENT] else '~~MEDIA~~'
-            MessageExport = '[' + Time + '] ' + Sender + ': ' + str(Content) + linesep
+            Quote = ''
+            if Message[MESSAGE_QUOTED] > -1:
+                QuotedIndex = Message[MESSAGE_QUOTED]
+                QuotedContent = Messages[QuotedIndex][MESSAGE_CONTENT] if Messages[QuotedIndex][MESSAGE_CONTENT] else '~~MEDIA~~'
+                QuotedSender = Messages[QuotedIndex][MESSAGE_SENDER] if Messages[QuotedIndex][MESSAGE_SENDER] != "MeMedesimo" else "You"
+                Quote = '  {' + QuotedSender + ': ' + QuotedContent + '}'
+            MessageExport = '[' + Time + '] ' + Sender + ': ' + str(Content) + Quote + linesep
             f.write(MessageExport.encode('utf8'))
 
 def GetChatList():
