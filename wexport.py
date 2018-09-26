@@ -5,33 +5,59 @@ from datetime import datetime
 ChatList = ['null']
 ContactNames = {}
 
+# Message format: [0]sender, [1]msg, [2]timestamp, [3]quoted message
+def GetMessages(ChatID):
+    msgstore = sqlite3.connect('./data/msgstore.db')
+    Cur = msgstore.cursor()
+
+    Messages = []
+    # NOTE(dave): If there's a dash in the chat id, it's a group chat
+    if '-' in ChatID:
+        pass
+    # NOTE(dave): No dash: private chat
+    else:
+        Self = 'You'
+        Other = ChatID
+        try:
+            Other = ContactNames[ChatID]
+        except:
+            pass
+        Cur.execute('SELECT timestamp,data,key_from_me FROM messages WHERE key_remote_jid="{ID}" ORDER BY _id ASC'.format(ID=ChatID))
+        RawMessages = Cur.fetchall()
+
+        for Message in RawMessages[1:]:
+            Sender = Self if Message[2] else Other
+            Messages.append([Sender, Message[1], Message[0], -1])
+    return Messages
+
+
 def PlainTestChat(ChatID):
     MESSAGE_SENDER = 0
     MESSAGE_CONTENT = 1
     MESSAGE_TIMESTAMP = 2
     MESSAGE_QUOTED = 3
-    Messages = [
-        # sender    |   msg |   timestamp   |   quoted message
-        ['MeMedesimo',  'one😡',  123456789,      -1],
-        ['Altro',       'two',  234586901,      -1],
-        ['MeMedesimo',  'three', 123456799,      1],
-        ['Altro',       0,      1234,            2]
-    ]
+    Messages = GetMessages(ChatID)
 
     # TODO(dave): check that directory doesn't already exist
-    OutPath = './exported/' + ChatList[ChatID]
-    makedirs(OutPath)
+    OutPath = './exported/'
+    try:
+        OutPath += ContactNames[ChatID]
+    except:
+        OutPath += ChatID
+    try:
+        makedirs(OutPath)
+    except:
+        pass
+    # TODO(dave): divide long chats in different files
     with open(OutPath + '/00.txt', 'wb') as f:
         for Message in Messages:
-            Time = datetime.utcfromtimestamp(Message[MESSAGE_TIMESTAMP]/1000).strftime("%Y-%m-%d %H:%M:%S")
+            Time = datetime.fromtimestamp(Message[MESSAGE_TIMESTAMP]/1000).strftime("%Y-%m-%d %H:%M:%S")
             Sender = Message[MESSAGE_SENDER] if Message[MESSAGE_SENDER] != "MeMedesimo" else "You"
             # TODO(dave): Specify type of data
+            # TODO(dave): Manage data
             Content = Message[MESSAGE_CONTENT] if Message[MESSAGE_CONTENT] else '~~MEDIA~~'
             MessageExport = '[' + Time + '] ' + Sender + ': ' + str(Content) + linesep
             f.write(MessageExport.encode('utf8'))
-
-def CleanChatID(ID):
-    return ID.replace('@g.us', '').replace('@s.whatsapp.net', '')
 
 def GetChatList():
     # NOTE(dave): Getting contact names
@@ -40,7 +66,7 @@ def GetChatList():
     Cur.execute('SELECT jid,display_name FROM wa_contacts WHERE is_whatsapp_user=1 AND raw_contact_id>0')
     Result = Cur.fetchall()
     for elem in Result:
-        ContactNames[CleanChatID(elem[0])] = elem[1]
+        ContactNames[elem[0]] = elem[1]
     wa.close()
 
     msgstore = sqlite3.connect('./data/msgstore.db')
@@ -48,17 +74,22 @@ def GetChatList():
     Cur.execute('SELECT key_remote_jid,subject FROM chat_list')
     Result = Cur.fetchall()
     for elem in Result:
-        ChatList.append(CleanChatID(elem[0]))
+        ChatList.append(elem[0])
         if elem[1]:
-            ContactNames[CleanChatID(elem[0])] = elem[1]
+            ContactNames[elem[0]] = elem[1]
     msgstore.close()
     
 def menu():
     GetChatList()
-    '''
+    
     print('Detected following conversations:')
     for i in range(1, len(ChatList)):
-        print(str(i) + '. ' + ChatList[i])
+        ChatID = ChatList[i]
+        try:
+            ChatID = ContactNames[ChatID]
+        except:
+            pass
+        print(str(i) + '. ' + ChatID)
 
     Selections = input('\nWhich conversation would you like to export? ')
     
@@ -69,11 +100,11 @@ def menu():
         if len(Select) > 1:
             Last = int(Select[1])
             for ChatID in range(First, Last + 1):
-                PlainTestChat(ChatID)
+                PlainTestChat(ChatList[ChatID])
         else:
             ChatID = First
-            PlainTestChat(ChatID)
-    '''
+            PlainTestChat(ChatList[ChatID])
+    
         
         
 

@@ -1,1 +1,4 @@
 *.db
+data/
+.vscode/
+exported/
