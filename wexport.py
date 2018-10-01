@@ -71,7 +71,9 @@ def PlainTestChat(ChatID):
         makedirs(OutPath)
     except: pass
     # TODO(dave): divide long chats in different files
-    with open(OutPath + '/00.txt', 'wb') as f:
+    OutFile = "000"
+    OutFileMessageCounter = 0
+    with open(OutPath + '/' + OutFile + '.txt', 'wb') as f:
         for Message in Messages:
             Time = datetime.fromtimestamp(Message[MESSAGE_TIMESTAMP]/1000).strftime("%Y-%m-%d %H:%M:%S")
             Sender = Message[MESSAGE_SENDER].replace('@s.whatsapp.net','') if Message[MESSAGE_SENDER] != "MeMedesimo" else "You"
@@ -83,9 +85,24 @@ def PlainTestChat(ChatID):
                 QuotedIndex = Message[MESSAGE_QUOTED]
                 QuotedContent = Messages[QuotedIndex][MESSAGE_CONTENT] if Messages[QuotedIndex][MESSAGE_CONTENT] else '~~MEDIA~~'
                 QuotedSender = Messages[QuotedIndex][MESSAGE_SENDER] if Messages[QuotedIndex][MESSAGE_SENDER] != "MeMedesimo" else "You"
-                Quote = '  {' + QuotedSender + ': ' + QuotedContent + '}'
-            MessageExport = '[' + Time + '] ' + Sender + ': ' + str(Content) + Quote + linesep
+                Quote = linesep + '           {In reply to ' + QuotedSender + ': ' + QuotedContent + '}'
+            MessageLead = '[' + Time + '] ' + Sender + ': '
+            MessageEnd = Quote + linesep
+            MessageLines = Content.split('\n')
+            MessageExport = MessageLead + MessageLines[0]
+            for Line in MessageLines[1:]:
+                MessageExport = MessageExport + linesep + ' '*len(MessageLead) + Line
+            MessageExport = MessageExport + MessageEnd
             f.write(MessageExport.encode('utf8'))
+
+            if '\n' in Content:
+                pass# print("FOUND NEWLINE: " + str(Content))
+            OutFileMessageCounter = OutFileMessageCounter + 1
+            if OutFileMessageCounter >= 500:
+                OutFile = '{0:03d}'.format(int(OutFile) + 1)
+                OutFileMessageCounter = 0
+                f.close()
+                f = open(OutPath + '/' + OutFile + '.txt', 'wb')
 
 def GetChatList():
     # NOTE(dave): Getting contact names
