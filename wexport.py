@@ -5,36 +5,53 @@ from datetime import datetime
 ChatList = ['null']
 ContactNames = {}
 
+def GetGroupMembers(ChatID, Cursor):
+    Members = {}
+    Cursor.execute('SELECT jid FROM group_participants WHERE gjid="{ID}"'.format(ID=ChatID))
+    JIDs = Cursor.fetchall()
+
+    for JID in JIDs:
+        JID = JID[0]
+        if not JID:
+            continue
+        Member = '+' + JID.replace('@s.whatsapp.net', '')
+        if JID in ContactNames:
+            Member = ContactNames[JID]
+
+        Members[JID] = Member
+
+    return Members
+
+def GetRawMessages(ChatID, Cursor):
+    # NOTE(dave): returning both message data and quoted messages' info
+    Cursor.execute('SELECT timestamp,data,key_from_me,quoted_row_id,key_id,remote_resource FROM messages WHERE key_remote_jid="{ID}" ORDER BY _id ASC'.format(ID=ChatID))
+    RawMessages = Cursor.fetchall()
+    Cursor.execute('SELECT _id,key_id FROM messages_quotes WHERE key_remote_jid="{ID}" ORDER BY _id ASC'.format(ID=ChatID))
+    RawQuotedMessages = Cursor.fetchall()
+    return RawMessages, RawQuotedMessages
+
 # Message format: [0]sender, [1]msg, [2]timestamp, [3]quoted message
 def GetMessages(ChatID):
     msgstore = sqlite3.connect('./data/msgstore.db')
     Cur = msgstore.cursor()
 
     Messages = []
-    # NOTE(dave): If there's a dash in the chat id, it's a group chat
-    if '-' in ChatID:
-        pass
-    # NOTE(dave): No dash: private chat
-    else:
-        MESSAGE_TIMESTAMP = 0
-        MESSAGE_CONTENT = 1
-        MESSAGE_FROM_ME = 2
-        MESSAGE_QUOTED = 3
-        MESSAGE_KEY_ID = 4
-        QUOTE_ID = 0
-        QUOTE_KEY_ID = 1
+    MESSAGE_TIMESTAMP = 0
+    MESSAGE_CONTENT = 1
+    MESSAGE_FROM_ME = 2
+    MESSAGE_QUOTED = 3
+    MESSAGE_KEY_ID = 4
+    QUOTE_ID = 0
+    QUOTE_KEY_ID = 1
 
+    if '-' in ChatID: # NOTE(dave): If there's a dash in the chat id, it's a group chat
         Self = 'You'
-        Other = ChatID
-        try:
-            Other = ContactNames[ChatID]
-        except: pass
-        # NOTE(dave): we need to get both message data and quoted messages' info
-        Cur.execute('SELECT timestamp,data,key_from_me,quoted_row_id,key_id FROM messages WHERE key_remote_jid="{ID}" ORDER BY _id ASC'.format(ID=ChatID))
-        RawMessages = Cur.fetchall()
-        Cur.execute('SELECT _id,key_id FROM messages_quotes WHERE key_remote_jid="{ID}" ORDER BY _id ASC'.format(ID=ChatID))
-        RawQuotedMessages = Cur.fetchall()
+        MESSAGE_SENDER = 5
+
+        RawMessages, RawQuotedMessages = GetRawMessages(ChatID, Cur)
         QuotedIndexes = {}
+
+        Members = GetGroupMembers(ChatID, Cur)
 
         for Message in RawMessages[1:]:
             # NOTE(dave): We keep track of quoted messages as we find them
@@ -43,16 +60,47 @@ def GetMessages(ChatID):
                 RawQuote = RawQuotedMessages.pop(0)
                 QuotedIndexes[RawQuote[QUOTE_ID]] = len(Messages)
 
-            Sender = Self if Message[MESSAGE_FROM_ME] else Other
-            if Message[MESSAGE_QUOTED]:
-                pass
+            Sender = Self
+            if not Message[MESSAGE_FROM_ME]:
+                Sender = Message[MESSAGE_SENDER]
+                if not Sender in Members:
+                    ManualName = input("ATTENTION: display name for " + Sender + " not found. Supply one: ")
+                    if ManualName:
+                        Members[Sender] = ManualName
+                    else:
+                        Members[Sender] = '+' + Sender.replace('@s.whatsapp.net', '')
+                Sender = Members[Sender]
+            
             QuotedMessage = -1
             try:
                 QuotedMessage = QuotedIndexes[Message[MESSAGE_QUOTED]]
             except: pass
             Messages.append([Sender, Message[MESSAGE_CONTENT], Message[MESSAGE_TIMESTAMP], QuotedMessage])
-    return Messages
+    else: # NOTE(dave): No dash: private chat
+        Self = 'You'
+        Other = ChatID
+        try:
+            Other = ContactNames[ChatID]
+        except: pass
+        RawMessages, RawQuotedMessages = GetRawMessages(ChatID, Cur)
+        QuotedIndexes = {}
 
+        for Message in RawMessages[1:]:
+            # NOTE(dave): We keep track of quoted messages as we find them
+            if len(RawQuotedMessages) > 0 and \
+            RawQuotedMessages[0][QUOTE_KEY_ID] == Message[MESSAGE_KEY_ID]:
+                RawQuote = RawQuotedMessages.pop(0)
+                QuotedIndexes[RawQuote[QUOTE_ID]] = len(Messages)
+
+            Sender = Self if Message[MESSAGE_FROM_ME] else Other
+
+            QuotedMessage = -1
+            try:
+                QuotedMessage = QuotedIndexes[Message[MESSAGE_QUOTED]]
+            except: pass
+            Messages.append([Sender, Message[MESSAGE_CONTENT], Message[MESSAGE_TIMESTAMP], QuotedMessage])
+    msgstore.close()
+    return Messages
 
 def PlainTestChat(ChatID):
     MESSAGE_SENDER = 0
