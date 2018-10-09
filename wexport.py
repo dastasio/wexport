@@ -1,6 +1,8 @@
 import sqlite3
 from os import makedirs, linesep
+from os.path import exists
 from datetime import datetime
+from shutil import copytree, copyfile
 
 ChatList = ['null']
 ContactNames = {}
@@ -102,55 +104,112 @@ def GetMessages(ChatID):
     msgstore.close()
     return Messages
 
-def PlainTestChat(ChatID):
+def HTMLExport(ChatsToExport):
     MESSAGE_SENDER = 0
     MESSAGE_CONTENT = 1
     MESSAGE_TIMESTAMP = 2
     MESSAGE_QUOTED = 3
-    Messages = GetMessages(ChatID)
 
-    # TODO(dave): check that directory doesn't already exist
-    OutPath = './exported/'
-    try:
-        OutPath += ContactNames[ChatID]
-    except:
-        OutPath += ChatID
-    try:
-        makedirs(OutPath)
-    except: pass
-    # TODO(dave): divide long chats in different files
-    OutFile = "000"
-    OutFileMessageCounter = 0
-    with open(OutPath + '/' + OutFile + '.txt', 'wb') as f:
-        for Message in Messages:
-            Time = datetime.fromtimestamp(Message[MESSAGE_TIMESTAMP]/1000).strftime("%Y-%m-%d %H:%M:%S")
-            Sender = Message[MESSAGE_SENDER].replace('@s.whatsapp.net','') if Message[MESSAGE_SENDER] != "MeMedesimo" else "You"
-            # TODO(dave): Specify type of data
-            # TODO(dave): Manage data
-            Content = Message[MESSAGE_CONTENT] if Message[MESSAGE_CONTENT] else '~~MEDIA~~'
-            Quote = ''
-            if Message[MESSAGE_QUOTED] > -1:
-                QuotedIndex = Message[MESSAGE_QUOTED]
-                QuotedContent = Messages[QuotedIndex][MESSAGE_CONTENT] if Messages[QuotedIndex][MESSAGE_CONTENT] else '~~MEDIA~~'
-                QuotedSender = Messages[QuotedIndex][MESSAGE_SENDER] if Messages[QuotedIndex][MESSAGE_SENDER] != "MeMedesimo" else "You"
-                Quote = linesep + '           {In reply to ' + QuotedSender + ': ' + QuotedContent + '}'
-            MessageLead = '[' + Time + '] ' + Sender + ': '
-            MessageEnd = Quote + linesep
-            MessageLines = Content.split('\n')
-            MessageExport = MessageLead + MessageLines[0]
-            for Line in MessageLines[1:]:
-                MessageExport = MessageExport + linesep + ' '*len(MessageLead) + Line
-            MessageExport = MessageExport + MessageEnd
-            f.write(MessageExport.encode('utf8'))
+    TemplatePath = './data/html_templates/'
+    OutPath = './exported/html/'
+    if not exists(OutPath+'lists/'):
+        makedirs(OutPath+'lists/')
+    if not exists(OutPath+'images'):
+        copytree(TemplatePath + 'images', OutPath + 'images')
+    if not exists(OutPath+'js'):
+        copytree(TemplatePath+'js', OutPath+'js')
+    if not exists(OutPath+'css'):
+        copytree(TemplatePath+'css', OutPath+'css')
 
-            if '\n' in Content:
-                pass# print("FOUND NEWLINE: " + str(Content))
-            OutFileMessageCounter = OutFileMessageCounter + 1
-            if OutFileMessageCounter >= 500:
-                OutFile = '{0:03d}'.format(int(OutFile) + 1)
-                OutFileMessageCounter = 0
-                f.close()
-                f = open(OutPath + '/' + OutFile + '.txt', 'wb')
+    ChatsHTMLSource = -1
+    with open(TemplatePath+'lists/chats.html', 'r') as f:
+        ChatsHTMLSource = f.readlines()
+    ChatsHTML = open(OutPath+'lists/chats.html', 'w')
+    while True:
+        SourceLine = ChatsHTMLSource.pop(0)
+        if SourceLine[0] == '$':
+            break
+        ChatsHTML.write(SourceLine)
+    
+    ChatEntryHTMLSource = -1
+    with open(TemplatePath+'lists/chat_entry.html', 'r') as f:
+        ChatEntryHTMLSource = f.read() + '\n'
+
+    for ChatID in ChatsToExport:
+        ChatName = ChatID
+        if ChatID in ContactNames: ChatName = ContactNames[ChatID]
+        MessagesOutPath = OutPath + 'chats/' + ChatName + '/'
+        if not exists(MessagesOutPath):
+            makedirs(MessagesOutPath)
+
+        # TODO(dave): Process messages and export in html
+        Messages = GetMessages(ChatID)
+        #for Message in Messages:
+        copyfile(TemplatePath+'chats/chat_01/messages.html', MessagesOutPath+'messages.html')
+
+        ChatEntryHTML = ChatEntryHTMLSource.\
+            replace('$CHAT_PATH', ChatName+'/messages.html', 1).\
+            replace('$CHAT_INITIAL', ChatName[0], 1).\
+            replace('$CHAT_NAME', ChatName, 1).\
+            replace('$CHAT_LENGTH',str(len(Messages)) + ' messages', 1)
+        ChatsHTML.write(ChatEntryHTML)
+    
+    for SourceLine in ChatsHTMLSource:
+        ChatsHTML.write(SourceLine)
+    ChatsHTML.close()
+
+    # TODO(dave): Edit this file
+    copyfile(TemplatePath+'export_results.html', OutPath+'export_results.html')
+
+def PlainTextExport(ChatsToExport):
+    MESSAGE_SENDER = 0
+    MESSAGE_CONTENT = 1
+    MESSAGE_TIMESTAMP = 2
+    MESSAGE_QUOTED = 3
+    
+    for ChatID in ChatsToExport:
+        OutPath = './exported/'
+        try:
+            OutPath += ContactNames[ChatID] + '/'
+        except:
+            OutPath += ChatID + '/'
+        try:
+            makedirs(OutPath)
+        except: pass
+
+        Messages = GetMessages(ChatID)
+        OutFile = "000"
+        OutFileMessageCounter = 0
+        with open(OutPath + OutFile + '.txt', 'wb') as f:
+            for Message in Messages:
+                Time = datetime.fromtimestamp(Message[MESSAGE_TIMESTAMP]/1000).strftime("%Y-%m-%d %H:%M:%S")
+                Sender = Message[MESSAGE_SENDER].replace('@s.whatsapp.net','') if Message[MESSAGE_SENDER] != "MeMedesimo" else "You"
+                # TODO(dave): Specify type of data
+                # TODO(dave): Manage data
+                Content = Message[MESSAGE_CONTENT] if Message[MESSAGE_CONTENT] else '~~MEDIA~~'
+                Quote = ''
+                if Message[MESSAGE_QUOTED] > -1:
+                    QuotedIndex = Message[MESSAGE_QUOTED]
+                    QuotedContent = Messages[QuotedIndex][MESSAGE_CONTENT] if Messages[QuotedIndex][MESSAGE_CONTENT] else '~~MEDIA~~'
+                    QuotedSender = Messages[QuotedIndex][MESSAGE_SENDER] if Messages[QuotedIndex][MESSAGE_SENDER] != "MeMedesimo" else "You"
+                    Quote = linesep + '           {In reply to ' + QuotedSender + ': ' + QuotedContent + '}'
+                MessageLead = '[' + Time + '] ' + Sender + ': '
+                MessageEnd = Quote + linesep
+                MessageLines = Content.split('\n')
+                MessageExport = MessageLead + MessageLines[0]
+                for Line in MessageLines[1:]:
+                    MessageExport = MessageExport + linesep + ' '*len(MessageLead) + Line
+                MessageExport = MessageExport + MessageEnd
+                f.write(MessageExport.encode('utf8'))
+
+                if '\n' in Content:
+                    pass# print("FOUND NEWLINE: " + str(Content))
+                OutFileMessageCounter = OutFileMessageCounter + 1
+                if OutFileMessageCounter >= 500:
+                    OutFile = '{0:03d}'.format(int(OutFile) + 1)
+                    OutFileMessageCounter = 0
+                    f.close()
+                    f = open(OutPath + OutFile + '.txt', 'wb')
 
 def GetChatList():
     # NOTE(dave): Getting contact names
@@ -172,7 +231,7 @@ def GetChatList():
             ContactNames[elem[0]] = elem[1]
     msgstore.close()
     
-def menu():
+def PrintChatList():
     GetChatList()
     
     print('Detected following conversations:')
@@ -185,7 +244,8 @@ def menu():
         print(str(i) + '. ' + ChatID)
 
     Selections = input('\nWhich conversation would you like to export? ')
-    
+    IDs = []
+
     for Select in Selections.split(','):
         Select = Select.strip().split('-')
         First = int(Select[0])
@@ -193,13 +253,18 @@ def menu():
         if len(Select) > 1:
             Last = int(Select[1])
             for ChatID in range(First, Last + 1):
-                PlainTestChat(ChatList[ChatID])
+                IDs.append(ChatList[ChatID])
         else:
             ChatID = First
-            PlainTestChat(ChatList[ChatID])
-    
-        
-        
+            IDs.append(ChatList[ChatID])
+
+    return IDs
+
+def menu():
+    Format = int(input('Choose the format[0:html,1:txt]: '))
+    SelectedChats = PrintChatList()
+    if Format == 0: HTMLExport(SelectedChats)
+    elif Format == 1: PlainTextExport(SelectedChats)
 
 
 if __name__ == "__main__":
