@@ -1,4 +1,4 @@
 *.db
-data/
 .vscode/
 exported/
+data/html_templates/chats/

@@ -66,7 +66,8 @@ def GetMessages(ChatID):
             if not Message[MESSAGE_FROM_ME]:
                 Sender = Message[MESSAGE_SENDER]
                 if not Sender in Members:
-                    ManualName = input("ATTENTION: display name for " + Sender + " not found. Supply one: ")
+                    # TODO(casey): Reactivate this
+                    ManualName = 0#input("ATTENTION: display name for " + Sender + " not found. Supply one: ")
                     if ManualName:
                         Members[Sender] = ManualName
                     else:
@@ -124,21 +125,23 @@ def HTMLExport(ChatsToExport):
     ChatsHTMLSource = -1
     with open(TemplatePath+'lists/chats.html', 'r') as f:
         ChatsHTMLSource = f.readlines()
-    ChatsHTML = open(OutPath+'lists/chats.html', 'w')
+    ChatsHTML = open(OutPath+'lists/chats.html', 'wb')
     while True:
         SourceLine = ChatsHTMLSource.pop(0)
         if SourceLine[0] == '$':
             break
-        ChatsHTML.write(SourceLine)
+        ChatsHTML.write(SourceLine.encode('utf-8'))
     
     ChatEntryHTMLSource = -1
-    with open(TemplatePath+'lists/chat_entry.html', 'r') as f:
-        ChatEntryHTMLSource = f.read() + '\n'
+    with open(TemplatePath+'lists/chat_entry.html', 'rb') as f:
+        ChatEntryHTMLSource = f.read()+b'\n'
 
+    ChatCount = 0
     for ChatID in ChatsToExport:
-        ChatName = ChatID
-        if ChatID in ContactNames: ChatName = ContactNames[ChatID]
-        MessagesOutPath = OutPath + 'chats/' + ChatName + '/'
+        ChatCount += 1
+        ChatName = ChatID.encode('utf-8')
+        if ChatID in ContactNames: ChatName = ContactNames[ChatID].encode('utf-8')
+        MessagesOutPath = OutPath + 'chats/chat_' + str(ChatCount) + '/'
         if not exists(MessagesOutPath):
             makedirs(MessagesOutPath)
 
@@ -148,14 +151,14 @@ def HTMLExport(ChatsToExport):
         copyfile(TemplatePath+'chats/chat_01/messages.html', MessagesOutPath+'messages.html')
 
         ChatEntryHTML = ChatEntryHTMLSource.\
-            replace('$CHAT_PATH', ChatName+'/messages.html', 1).\
-            replace('$CHAT_INITIAL', ChatName[0], 1).\
-            replace('$CHAT_NAME', ChatName, 1).\
-            replace('$CHAT_LENGTH',str(len(Messages)) + ' messages', 1)
+            replace(b'$CHAT_PATH', 'chat_{0}/messages.html'.format(ChatCount).encode('utf-8'), 1).\
+            replace(b'$CHAT_INITIAL', str(ChatName)[0].encode('utf-8'), 1).\
+            replace(b'$CHAT_NAME', ChatName, 1).\
+            replace(b'$CHAT_LENGTH',str(len(Messages)).encode('utf-8') + b' messages', 1)
         ChatsHTML.write(ChatEntryHTML)
     
     for SourceLine in ChatsHTMLSource:
-        ChatsHTML.write(SourceLine)
+        ChatsHTML.write(SourceLine.encode('utf-8'))
     ChatsHTML.close()
 
     # TODO(dave): Edit this file
