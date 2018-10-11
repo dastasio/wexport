@@ -135,8 +135,29 @@ def HTMLExport(ChatsToExport):
     ChatEntryHTMLSource = -1
     with open(TemplatePath+'lists/chat_entry.html', 'rb') as f:
         ChatEntryHTMLSource = f.read()+b'\n'
+    
+    MessagesHTMLSource = -1
+    with open(TemplatePath+'chats/messages.html', 'rb') as f:
+        MessagesHTMLSource = f.read()+b'\n'
+
+    MessageEntryHTMLSource = -1
+    with open(TemplatePath+'chats/message_entry.html', 'rb') as f:
+        MessageEntryHTMLSource = f.read()+b'\n'
+    
+    MessageEntryJoinedHTMLSource = -1
+    with open(TemplatePath+'chats/message_entry_joined.html', 'rb') as f:
+        MessageEntryJoinedHTMLSource = f.read()+b'\n'
+
+    MessageDateHTMLSource = -1
+    with open(TemplatePath+'chats/message_date.html', 'rb') as f:
+        MessageDateHTMLSource = f.read()+b'\n'
+
+    PageLinkHTMLSource = b'\t\t\t\t<a class="pagination block_link" href="messages$PAGE_LINK.html">\n \
+                        $LINK_TEXT\n \
+                        \t\t\t\t</a>\n\n'
 
     ChatCount = 0
+    MessagesTotalCount = 0
     for ChatID in ChatsToExport:
         ChatCount += 1
         ChatName = ChatID.encode('utf-8')
@@ -145,14 +166,103 @@ def HTMLExport(ChatsToExport):
         if not exists(MessagesOutPath):
             makedirs(MessagesOutPath)
 
-        # TODO(dave): Process messages and export in html
+        
         Messages = GetMessages(ChatID)
-        #for Message in Messages:
-        copyfile(TemplatePath+'chats/chat_01/messages.html', MessagesOutPath+'messages.html')
+        OldDateDay = -1
+        OldSender = -1
+        PageHTML = b''
+        PageMessageCount = 0
+        PageCount = 1
+        for Message in Messages:
+            MessagesTotalCount += 1
+            PageMessageCount += 1
+            DateDay = datetime.fromtimestamp(Message[MESSAGE_TIMESTAMP]/1000).strftime("%d %B %Y").encode('utf-8')
+            DateTime = datetime.fromtimestamp(Message[MESSAGE_TIMESTAMP]/1000).strftime("%H:%M:%S").encode('utf-8')
+            DateComplete = DateDay + b' ' + DateTime
+            DateTime = DateTime[:-3]
+            # TODO(dave): check that this works as expected ^^^
+            Sender = Message[MESSAGE_SENDER].replace('@s.whatsapp.net','').encode('utf-8') if Message[MESSAGE_SENDER] != 'MeMedesimo' else b'You'
+            Content = Message[MESSAGE_CONTENT].encode('utf-8') if Message[MESSAGE_CONTENT] else b'~~MEDIA~~'
 
+            # TODO(dave): Manage quotes
+            # TODO(dave): Add/remove previous/next messages link
+            MessageEntryHTML = b''
+            if DateDay != OldDateDay:
+                MessageEntryHTML += MessageDateHTMLSource.\
+                    replace(b'$MESSAGE_TOTAL_COUNT', str(MessagesTotalCount).encode('utf-8'), 1).\
+                    replace(b'$CHAT_DATE', DateDay, 1)
+                OldDateDay = DateDay
+            if Sender != OldSender:
+                MessageInitials = bytes([Sender[0]])
+                # TODO(dave): make color more random
+                MessageInitialColor = ((Sender[0] + ChatCount) % 7) + 1
+                MessageEntryHTML += MessageEntryHTMLSource.\
+                    replace(b'$MESSAGE_TOTAL_COUNT', str(MessagesTotalCount).encode('utf-8'), 1).\
+                    replace(b'$MESSAGE_INITIALS_COLOR', str(MessageInitialColor).encode('utf-8'), 1).\
+                    replace(b'$MESSAGE_INITIALS', MessageInitials, 1).\
+                    replace(b'$MESSAGE_TIME_COMPLETE', DateComplete, 1).\
+                    replace(b'$MESSAGE_TIME', DateTime, 1).\
+                    replace(b'$MESSAGE_SENDER', Sender, 1).\
+                    replace(b'$MESSAGE_CONTENT', Content, 1)
+                OldSender = Sender
+            else:
+                MessageEntryHTML += MessageEntryJoinedHTMLSource.\
+                    replace(b'$MESSAGE_TOTAL_COUNT', str(MessagesTotalCount).encode('utf-8'), 1).\
+                    replace(b'$MESSAGE_TIME_COMPLETE', DateComplete, 1).\
+                    replace(b'$MESSAGE_TIME', DateTime, 1).\
+                    replace(b'$MESSAGE_CONTENT', Content, 1)
+            
+            PageHTML += MessageEntryHTML
+            if PageMessageCount >= 700:
+                PageNumber = b'' if PageCount==1 else str(PageCount).encode('utf-8')
+                NextPageNumber = str(PageCount+1).encode('utf-8')
+                PrevPageNumber = b'' if PageCount==2 else str(PageCount-1).encode('utf-8')
+                if PageCount > 1:
+                    PageHTML = PageLinkHTMLSource.\
+                        replace(b'$PAGE_LINK', PrevPageNumber, 1).\
+                        replace(b'$LINK_TEXT', b'Previous messages', 1) + PageHTML
+                # TODO(dave): Check if 'next messages' link is actually needed
+                PageHTML += PageLinkHTMLSource.\
+                    replace(b'$PAGE_LINK', NextPageNumber, 1).\
+                    replace(b'$LINK_TEXT', b'Next messages', 1)
+                MessagesHTML = MessagesHTMLSource.\
+                    replace(b'$CHAT_NAME', ChatName, 1).\
+                    replace(b'$MESSAGE_LIST', PageHTML, 1)
+
+                
+                MessagesFile = open(MessagesOutPath+'messages{0}.html'.format(PageNumber.decode('utf-8')), 'wb')
+                MessagesFile.write(MessagesHTML)
+                MessagesFile.close()
+                PageCount += 1
+                PageMessageCount = 0
+                PageHTML = b''
+                OldDateDay = -1
+                OldSender = -1
+            
+        # TODO(dave): compress this
+        PageNumber = b'' if PageCount==1 else str(PageCount).encode('utf-8')
+        PrevPageNumber = b'' if PageCount<=2 else str(PageCount-1).encode('utf-8')
+        PageHTML = PageLinkHTMLSource.\
+            replace(b'$PAGE_LINK', PrevPageNumber, 1).\
+            replace(b'$LINK_TEXT', b'Previous messages', 1) + PageHTML
+        MessagesHTML = MessagesHTMLSource.\
+            replace(b'$CHAT_NAME', ChatName, 1).\
+            replace(b'$MESSAGE_LIST', PageHTML, 1)
+        
+        MessagesFile = open(MessagesOutPath+'messages{0}.html'.format(PageNumber.decode('utf-8')), 'wb')
+        MessagesFile.write(MessagesHTML)
+        MessagesFile.close()
+        PageCount += 1
+        PageHTML = b''
+
+        #copyfile(TemplatePath+'chats/chat_01/messages.html', MessagesOutPath+'messages.html')
+
+        ChatInitial = bytes([ChatName[0]])
+        ChatInitialColor = (ChatName[0] % 7) + 1
         ChatEntryHTML = ChatEntryHTMLSource.\
             replace(b'$CHAT_PATH', 'chat_{0}/messages.html'.format(ChatCount).encode('utf-8'), 1).\
-            replace(b'$CHAT_INITIAL', str(ChatName)[0].encode('utf-8'), 1).\
+            replace(b'$CHAT_INITIAL_COLOR', str(ChatInitialColor).encode('utf-8'), 1).\
+            replace(b'$CHAT_INITIAL', ChatInitial, 1).\
             replace(b'$CHAT_NAME', ChatName, 1).\
             replace(b'$CHAT_LENGTH',str(len(Messages)).encode('utf-8') + b' messages', 1)
         ChatsHTML.write(ChatEntryHTML)
