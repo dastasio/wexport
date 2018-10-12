@@ -78,7 +78,7 @@ def GetMessages(ChatID):
             try:
                 QuotedMessage = QuotedIndexes[Message[MESSAGE_QUOTED]]
             except: pass
-            Messages.append([Sender, Message[MESSAGE_CONTENT], Message[MESSAGE_TIMESTAMP], QuotedMessage])
+            Messages.append([Sender, Message[MESSAGE_CONTENT], Message[MESSAGE_TIMESTAMP], QuotedMessage, -1])
     else: # NOTE(dave): No dash: private chat
         Self = 'You'
         Other = ChatID
@@ -101,7 +101,7 @@ def GetMessages(ChatID):
             try:
                 QuotedMessage = QuotedIndexes[Message[MESSAGE_QUOTED]]
             except: pass
-            Messages.append([Sender, Message[MESSAGE_CONTENT], Message[MESSAGE_TIMESTAMP], QuotedMessage])
+            Messages.append([Sender, Message[MESSAGE_CONTENT], Message[MESSAGE_TIMESTAMP], QuotedMessage, -1])
     msgstore.close()
     return Messages
 
@@ -110,6 +110,7 @@ def HTMLExport(ChatsToExport):
     MESSAGE_CONTENT = 1
     MESSAGE_TIMESTAMP = 2
     MESSAGE_QUOTED = 3
+    MESSAGE_ID = 4
 
     TemplatePath = './data/html_templates/'
     OutPath = './exported/html/'
@@ -155,6 +156,10 @@ def HTMLExport(ChatsToExport):
     PageLinkHTMLSource = b'\t\t\t\t<a class="pagination block_link" href="messages$PAGE_LINK.html">\n \
                         $LINK_TEXT\n \
                         \t\t\t\t</a>\n\n'
+    
+    QuoteHTMLSource = b'\t\t\t\t\t\t<div class="reply_to details"> \
+                        \t\t\t\t\t\t\tIn reply to <a href="#go_to_message$QUOTED_ID" onclick="return GoToMessage($QUOTED_ID)">this message</a> \
+                        \t\t\t\t\t\t</div>\n'
 
     ChatCount = 0
     MessagesTotalCount = 0
@@ -183,33 +188,44 @@ def HTMLExport(ChatsToExport):
             # TODO(dave): check that this works as expected ^^^
             Sender = Message[MESSAGE_SENDER].replace('@s.whatsapp.net','').encode('utf-8') if Message[MESSAGE_SENDER] != 'MeMedesimo' else b'You'
             Content = Message[MESSAGE_CONTENT].encode('utf-8') if Message[MESSAGE_CONTENT] else b'~~MEDIA~~'
+            QuoteHTML = b''
 
             # TODO(dave): Manage quotes
             # TODO(dave): Add/remove previous/next messages link
             MessageEntryHTML = b''
             if DateDay != OldDateDay:
                 MessageEntryHTML += MessageDateHTMLSource.\
-                    replace(b'$MESSAGE_TOTAL_COUNT', str(MessagesTotalCount).encode('utf-8'), 1).\
+                    replace(b'$MESSAGE_ID', str(MessagesTotalCount).encode('utf-8'), 1).\
                     replace(b'$CHAT_DATE', DateDay, 1)
+                MessagesTotalCount += 1
                 OldDateDay = DateDay
+            
+            Message[MESSAGE_ID] = MessagesTotalCount
+            if Message[MESSAGE_QUOTED] > -1:
+                QuotedIndex = Message[MESSAGE_QUOTED]
+                QuotedID = Messages[QuotedIndex][MESSAGE_ID]
+                QuoteHTML = QuoteHTMLSource.\
+                    replace(b'$QUOTED_ID', str(QuotedID).encode('utf-8'), 2)
             if Sender != OldSender:
                 MessageInitials = bytes([Sender[0]])
                 # TODO(dave): make color more random
                 MessageInitialColor = ((Sender[0] + ChatCount) % 7) + 1
                 MessageEntryHTML += MessageEntryHTMLSource.\
-                    replace(b'$MESSAGE_TOTAL_COUNT', str(MessagesTotalCount).encode('utf-8'), 1).\
+                    replace(b'$MESSAGE_ID', str(Message[MESSAGE_ID]).encode('utf-8'), 1).\
                     replace(b'$MESSAGE_INITIALS_COLOR', str(MessageInitialColor).encode('utf-8'), 1).\
                     replace(b'$MESSAGE_INITIALS', MessageInitials, 1).\
                     replace(b'$MESSAGE_TIME_COMPLETE', DateComplete, 1).\
                     replace(b'$MESSAGE_TIME', DateTime, 1).\
+                    replace(b'$QUOTE', QuoteHTML, 1).\
                     replace(b'$MESSAGE_SENDER', Sender, 1).\
                     replace(b'$MESSAGE_CONTENT', Content, 1)
                 OldSender = Sender
             else:
                 MessageEntryHTML += MessageEntryJoinedHTMLSource.\
-                    replace(b'$MESSAGE_TOTAL_COUNT', str(MessagesTotalCount).encode('utf-8'), 1).\
+                    replace(b'$MESSAGE_ID', str(Message[MESSAGE_ID]).encode('utf-8'), 1).\
                     replace(b'$MESSAGE_TIME_COMPLETE', DateComplete, 1).\
                     replace(b'$MESSAGE_TIME', DateTime, 1).\
+                    replace(b'$QUOTE', QuoteHTML, 1).\
                     replace(b'$MESSAGE_CONTENT', Content, 1)
             
             PageHTML += MessageEntryHTML
