@@ -7,6 +7,7 @@ from shutil import copytree, copyfile
 ChatList = ['null']
 ContactNames = {}
 
+# TODO(dave): Add 'member has left/joined' messages for group chats
 def GetGroupMembers(ChatID, Cursor):
     Members = {}
     Cursor.execute('SELECT jid FROM group_participants WHERE gjid="{ID}"'.format(ID=ChatID))
@@ -26,7 +27,7 @@ def GetGroupMembers(ChatID, Cursor):
 
 def GetRawMessages(ChatID, Cursor):
     # NOTE(dave): returning both message data and quoted messages' info
-    Cursor.execute('SELECT timestamp,data,key_from_me,quoted_row_id,key_id,remote_resource FROM messages WHERE key_remote_jid="{ID}" ORDER BY _id ASC'.format(ID=ChatID))
+    Cursor.execute('SELECT timestamp,data,key_from_me,quoted_row_id,key_id,remote_resource,media_wa_type,media_name,media_caption FROM messages WHERE key_remote_jid="{ID}" ORDER BY _id ASC'.format(ID=ChatID))
     RawMessages = Cursor.fetchall()
     Cursor.execute('SELECT _id,key_id FROM messages_quotes WHERE key_remote_jid="{ID}" ORDER BY _id ASC'.format(ID=ChatID))
     RawQuotedMessages = Cursor.fetchall()
@@ -43,13 +44,16 @@ def GetMessages(ChatID):
     MESSAGE_FROM_ME = 2
     MESSAGE_QUOTED = 3
     MESSAGE_KEY_ID = 4
+    MESSAGE_SENDER = 5
+    MESSAGE_MEDIA_TYPE = 6
+    MESSAGE_MEDIA_NAME = 7
+    MESSAGE_MEDIA_CAPTION = 8
     QUOTE_ID = 0
     QUOTE_KEY_ID = 1
 
     if '-' in ChatID: # NOTE(dave): If there's a dash in the chat id, it's a group chat
         Self = 'You'
-        MESSAGE_SENDER = 5
-
+        
         RawMessages, RawQuotedMessages = GetRawMessages(ChatID, Cur)
         QuotedIndexes = {}
 
@@ -78,7 +82,13 @@ def GetMessages(ChatID):
             try:
                 QuotedMessage = QuotedIndexes[Message[MESSAGE_QUOTED]]
             except: pass
-            Messages.append([Sender, Message[MESSAGE_CONTENT], Message[MESSAGE_TIMESTAMP], QuotedMessage, -1])
+            if int(Message[MESSAGE_MEDIA_TYPE]):
+                MESSAGE_CONTENT = MESSAGE_MEDIA_CAPTION
+            Messages.append([int(Message[MESSAGE_MEDIA_TYPE]), Sender, Message[MESSAGE_CONTENT], Message[MESSAGE_TIMESTAMP], QuotedMessage, -1, Message[MESSAGE_MEDIA_NAME]])
+            MESSAGE_CONTENT = 1
+            # NOTE(dave): Message Struct
+            # [0]Media type, [1]Sender, [2]Content, [3]Timestamp, [4]Quoted message index, 
+            # [5]Message Unique ID (to be filled later), [6]Media filename
     else: # NOTE(dave): No dash: private chat
         Self = 'You'
         Other = ChatID
@@ -101,16 +111,29 @@ def GetMessages(ChatID):
             try:
                 QuotedMessage = QuotedIndexes[Message[MESSAGE_QUOTED]]
             except: pass
-            Messages.append([Sender, Message[MESSAGE_CONTENT], Message[MESSAGE_TIMESTAMP], QuotedMessage, -1])
+            if int(Message[MESSAGE_MEDIA_TYPE]):
+                MESSAGE_CONTENT = MESSAGE_MEDIA_CAPTION
+            Messages.append([int(Message[MESSAGE_MEDIA_TYPE]), Sender, Message[MESSAGE_CONTENT], Message[MESSAGE_TIMESTAMP], QuotedMessage, -1, Message[MESSAGE_MEDIA_NAME]])
+            MESSAGE_CONTENT = 1
+            # NOTE(dave): Message Struct
+            # [0]Media type, [1]Sender, [2]Content, [3]Timestamp, [4]Quoted message index, 
+            # [5]Message Unique ID (to be filled later), [6]Media filename
     msgstore.close()
     return Messages
 
 def HTMLExport(ChatsToExport):
-    MESSAGE_SENDER = 0
-    MESSAGE_CONTENT = 1
-    MESSAGE_TIMESTAMP = 2
-    MESSAGE_QUOTED = 3
-    MESSAGE_ID = 4
+    # TODO(dave): maybe fix naming inconsistencies
+    MESSAGE_TYPE = 0
+    MESSAGE_SENDER = 1
+    MESSAGE_CONTENT = 2
+    MESSAGE_TIMESTAMP = 3
+    MESSAGE_QUOTED = 4
+    MESSAGE_ID = 5
+    MESSAGE_FILENAME = 6
+    TYPE_IMAGE = 1
+    TYPE_VOICE = 2
+    TYPE_VIDEO = 3
+    TYPE_DELETED = 15
 
     TemplatePath = './data/html_templates/'
     OutPath = './exported/html/'
@@ -157,10 +180,41 @@ def HTMLExport(ChatsToExport):
                         $LINK_TEXT\n \
                         \t\t\t\t</a>\n\n'
     
-    QuoteHTMLSource = b'\t\t\t\t\t\t<div class="reply_to details"> \
-                        \t\t\t\t\t\t\tIn reply to <a href="#go_to_message$QUOTED_ID" onclick="return GoToMessage($QUOTED_ID)">this message</a> \
+    # TODO(dave): Maybe change 'this message' to quoted message's sender
+    QuoteHTMLSource = b'\t\t\t\t\t\t<div class="reply_to details"> \n\
+                        \t\t\t\t\t\t\tIn reply to <a href="#go_to_message$QUOTED_ID" onclick="return GoToMessage($QUOTED_ID)">this message</a> \n\
                         \t\t\t\t\t\t</div>\n'
 
+    ImageHTMLSource = b'\t\t\t\t\t\t<div class="media_wrap clearfix"> \n\
+                        \t\t\t\t\t\t\t<a class="photo_wrap clearfix pull_left" href="./photos/$FILENAME"> \n\
+                        \t\t\t\t\t\t\t\t<img class="photo" src="./photos/$FILENAME" \n\
+                        \t\t\t\t\t\t\t\t\tstyle="width: 146px; height: 260px" /> \n\
+                        \t\t\t\t\t\t\t</a> \n\
+                        \t\t\t\t\t\t</div>\n'
+    VoiceHTMLSource = b'\t\t\t\t\t\t<div class="media_wrap clearfix"> \n\
+                        \t\t\t\t\t\t\t<a class="media clearfix pull_left block_link media_voice_message" href="./voice_messages/$FILENAME"> \n\
+                        \t\t\t\t\t\t\t\t<div class="fill pull_left"> \n\
+                        \t\t\t\t\t\t\t\t</div> \n\
+                        \t\t\t\t\t\t\t\t<div class="body"> \n\
+                        \t\t\t\t\t\t\t\t\t<div class="title bold"> \n\
+                        \t\t\t\t\t\t\t\t\t\tVoice message \n\
+                        \t\t\t\t\t\t\t\t\t</div> \n\
+                        \t\t\t\t\t\t\t\t\t<div class="status details"> \n\
+                        $DURATION \n\
+                        \t\t\t\t\t\t\t\t\t</div> \n\
+                        \t\t\t\t\t\t\t\t</div> \n\
+                        \t\t\t\t\t\t\t</a> \n\
+                        \t\t\t\t\t\t</div>\n'
+    VideoHTMLSource = b'\t\t\t\t\t\t<a class="video_file_wrap clearfix pull_left" href="./video_files/$FILENAME"> \n\
+                        \t\t\t\t\t\t\t<div class="video_play_bg"> \n\
+                        \t\t\t\t\t\t\t\t<div class="video_play"> \n\
+                        \t\t\t\t\t\t\t\t</div> \n\
+                        \t\t\t\t\t\t\t</div> \n\
+                        \t\t\t\t\t\t\t<div class="video_duration"> \n\
+                        $DURATION \n\
+                        \t\t\t\t\t\t\t</div> \n\
+                        \t\t\t\t\t\t\t<img class="video_file" src="./video_files/$THUMBNAIL" style="width: 260px; height: 145px"/> \n\
+                        \t\t\t\t\t\t</a>\n'
     ChatCount = 0
     MessagesTotalCount = 0
     for ChatID in ChatsToExport:
@@ -187,8 +241,9 @@ def HTMLExport(ChatsToExport):
             DateTime = DateTime[:-3]
             # TODO(dave): check that this works as expected ^^^
             Sender = Message[MESSAGE_SENDER].replace('@s.whatsapp.net','').encode('utf-8') if Message[MESSAGE_SENDER] != 'MeMedesimo' else b'You'
-            Content = Message[MESSAGE_CONTENT].encode('utf-8') if Message[MESSAGE_CONTENT] else b'~~MEDIA~~'
+            Content = Message[MESSAGE_CONTENT].encode('utf-8') if Message[MESSAGE_CONTENT] else b''
             QuoteHTML = b''
+            MediaHTML = b''
 
             # TODO(dave): Manage quotes
             # TODO(dave): Add/remove previous/next messages link
@@ -206,6 +261,24 @@ def HTMLExport(ChatsToExport):
                 QuotedID = Messages[QuotedIndex][MESSAGE_ID]
                 QuoteHTML = QuoteHTMLSource.\
                     replace(b'$QUOTED_ID', str(QuotedID).encode('utf-8'), 2)
+            if Message[MESSAGE_TYPE] == TYPE_DELETED:
+                Content = b'~deleted message~'
+            elif Message[MESSAGE_TYPE] == TYPE_VIDEO:
+                # TODO(dave): Insert video duration
+                MediaHTML = VideoHTMLSource.\
+                    replace(b'$FILENAME', b'test.mp4', 1).\
+                    replace(b'$DURATION', b'00:00', 1).\
+                    replace(b'$THUMBNAIL', b'test_thumb.jpg', 1)
+            elif Message[MESSAGE_TYPE] == TYPE_VOICE:
+                # TODO(dave): Insert voice duration
+                MediaHTML = VoiceHTMLSource.\
+                    replace(b'$FILENAME', b'test.opus', 1)
+            elif Message[MESSAGE_TYPE] == TYPE_IMAGE:
+                # TODO(dave): Add thumbnails
+                # TODO(dave): Make thumbnail size dynamic
+                # TODO(dave): Copy images from source to destination
+                MediaHTML = ImageHTMLSource.\
+                    replace(b'$FILENAME', b'test.jpg', 2)
             if Sender != OldSender:
                 MessageInitials = bytes([Sender[0]])
                 # TODO(dave): make color more random
@@ -218,6 +291,7 @@ def HTMLExport(ChatsToExport):
                     replace(b'$MESSAGE_TIME', DateTime, 1).\
                     replace(b'$QUOTE', QuoteHTML, 1).\
                     replace(b'$MESSAGE_SENDER', Sender, 1).\
+                    replace(b'$MESSAGE_MEDIA', MediaHTML, 1).\
                     replace(b'$MESSAGE_CONTENT', Content, 1)
                 OldSender = Sender
             else:
@@ -226,13 +300,14 @@ def HTMLExport(ChatsToExport):
                     replace(b'$MESSAGE_TIME_COMPLETE', DateComplete, 1).\
                     replace(b'$MESSAGE_TIME', DateTime, 1).\
                     replace(b'$QUOTE', QuoteHTML, 1).\
+                    replace(b'$MESSAGE_MEDIA', MediaHTML, 1).\
                     replace(b'$MESSAGE_CONTENT', Content, 1)
             
             PageHTML += MessageEntryHTML
             if PageMessageCount >= 700:
                 PageNumber = b'' if PageCount==1 else str(PageCount).encode('utf-8')
                 NextPageNumber = str(PageCount+1).encode('utf-8')
-                PrevPageNumber = b'' if PageCount==2 else str(PageCount-1).encode('utf-8')
+                PrevPageNumber = b'' if PageCount<=2 else str(PageCount-1).encode('utf-8')
                 if PageCount > 1:
                     PageHTML = PageLinkHTMLSource.\
                         replace(b'$PAGE_LINK', PrevPageNumber, 1).\
@@ -258,9 +333,10 @@ def HTMLExport(ChatsToExport):
         # TODO(dave): compress this
         PageNumber = b'' if PageCount==1 else str(PageCount).encode('utf-8')
         PrevPageNumber = b'' if PageCount<=2 else str(PageCount-1).encode('utf-8')
-        PageHTML = PageLinkHTMLSource.\
-            replace(b'$PAGE_LINK', PrevPageNumber, 1).\
-            replace(b'$LINK_TEXT', b'Previous messages', 1) + PageHTML
+        if PageCount > 1:
+            PageHTML = PageLinkHTMLSource.\
+                replace(b'$PAGE_LINK', PrevPageNumber, 1).\
+                replace(b'$LINK_TEXT', b'Previous messages', 1) + PageHTML
         MessagesHTML = MessagesHTMLSource.\
             replace(b'$CHAT_NAME', ChatName, 1).\
             replace(b'$MESSAGE_LIST', PageHTML, 1)
@@ -270,8 +346,6 @@ def HTMLExport(ChatsToExport):
         MessagesFile.close()
         PageCount += 1
         PageHTML = b''
-
-        #copyfile(TemplatePath+'chats/chat_01/messages.html', MessagesOutPath+'messages.html')
 
         ChatInitial = bytes([ChatName[0]])
         ChatInitialColor = (ChatName[0] % 7) + 1
