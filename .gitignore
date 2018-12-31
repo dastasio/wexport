@@ -1,4 +1,9 @@
-*.db
+*.db*
 .vscode/
 exported/
 data/html_templates/chats/
+data/Media/*
+*.bak
+*.dat
+*.dir
+hashes

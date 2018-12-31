@@ -3,9 +3,13 @@ from os import makedirs, linesep
 from os.path import exists
 from datetime import datetime
 from shutil import copytree, copyfile
+from glob import glob
+from PIL import Image
+import shelve
 
 ChatList = ['null']
 ContactNames = {}
+ImageSources = shelve.open('./data/imagelist')
 
 # TODO(dave): Add 'member has left/joined' messages for group chats
 def GetGroupMembers(ChatID, Cursor):
@@ -27,7 +31,7 @@ def GetGroupMembers(ChatID, Cursor):
 
 def GetRawMessages(ChatID, Cursor):
     # NOTE(dave): returning both message data and quoted messages' info
-    Cursor.execute('SELECT timestamp,data,key_from_me,quoted_row_id,key_id,remote_resource,media_wa_type,media_name,media_caption FROM messages WHERE key_remote_jid="{ID}" ORDER BY _id ASC'.format(ID=ChatID))
+    Cursor.execute('SELECT timestamp,data,key_from_me,quoted_row_id,key_id,remote_resource,media_wa_type,thumb_image,media_caption FROM messages WHERE key_remote_jid="{ID}" ORDER BY _id ASC'.format(ID=ChatID))
     RawMessages = Cursor.fetchall()
     Cursor.execute('SELECT _id,key_id FROM messages_quotes WHERE key_remote_jid="{ID}" ORDER BY _id ASC'.format(ID=ChatID))
     RawQuotedMessages = Cursor.fetchall()
@@ -188,7 +192,7 @@ def HTMLExport(ChatsToExport):
     ImageHTMLSource = b'\t\t\t\t\t\t<div class="media_wrap clearfix"> \n\
                         \t\t\t\t\t\t\t<a class="photo_wrap clearfix pull_left" href="./photos/$FILENAME"> \n\
                         \t\t\t\t\t\t\t\t<img class="photo" src="./photos/$FILENAME" \n\
-                        \t\t\t\t\t\t\t\t\tstyle="width: 146px; height: 260px" /> \n\
+                        \t\t\t\t\t\t\t\t\tstyle="width: 146px; height: $HEIGHTpx" /> \n\
                         \t\t\t\t\t\t\t</a> \n\
                         \t\t\t\t\t\t</div>\n'
     VoiceHTMLSource = b'\t\t\t\t\t\t<div class="media_wrap clearfix"> \n\
@@ -261,6 +265,8 @@ def HTMLExport(ChatsToExport):
                 QuotedID = Messages[QuotedIndex][MESSAGE_ID]
                 QuoteHTML = QuoteHTMLSource.\
                     replace(b'$QUOTED_ID', str(QuotedID).encode('utf-8'), 2)
+            
+            # NOTE(dave): media management
             if Message[MESSAGE_TYPE] == TYPE_DELETED:
                 Content = b'~deleted message~'
             elif Message[MESSAGE_TYPE] == TYPE_VIDEO:
@@ -274,11 +280,22 @@ def HTMLExport(ChatsToExport):
                 MediaHTML = VoiceHTMLSource.\
                     replace(b'$FILENAME', b'test.opus', 1)
             elif Message[MESSAGE_TYPE] == TYPE_IMAGE:
-                # TODO(dave): Add thumbnails
-                # TODO(dave): Make thumbnail size dynamic
-                # TODO(dave): Copy images from source to destination
+                # TODO(dave): Maybe add thumbnails
+                FIXED_WIDTH = 146
+                filename = str(Message[MESSAGE_FILENAME])
+                SourceFile = './data/' + filename[filename.find('Media/'):filename.find('jpg')+3]
+                ImageName = SourceFile[-23:]
+                DestFile = MessagesOutPath + 'photos/' + ImageName
+                Ratio = 1
+                if SourceFile in ImageSources.keys():
+                    if not exists(DestFile):
+                        copyfile(SourceFile, DestFile)
+                    Ratio = ImageSources[SourceFile]
                 MediaHTML = ImageHTMLSource.\
-                    replace(b'$FILENAME', b'test.jpg', 2)
+                    replace(b'$FILENAME', ImageName.encode('utf-8'), 2).\
+                    replace(b'$HEIGHT', str(FIXED_WIDTH/Ratio).encode('utf-8'), 1)
+            
+            
             if Sender != OldSender:
                 MessageInitials = bytes([Sender[0]])
                 # TODO(dave): make color more random
@@ -463,8 +480,36 @@ def PrintChatList():
 
     return IDs
 
+def ProcessImageList(ImageList, ImageListHash):
+    print ('[DEBUG] Calculating Image List')
+    for ImageFilename in ImageList:
+        ImageFilename = ImageFilename.replace('\\', '/')
+        ImSource = Image.open(ImageFilename)
+        W, H = ImSource.size
+        Ratio = float(W) / float(H)
+        ImSource.close()
+        ImageSources[ImageFilename] = Ratio
+
+    with open('./data/hashes', 'w') as HashesFile:
+        HashesFile.write(str(ImageListHash))
+
+def GetImagesList():
+    ImagePath = './data/Media/WhatsApp Images'
+    ImageList = glob(ImagePath + '/*.jpg')
+    ImageList.extend(glob(ImagePath + '/Sent/*.jpg'))
+
+    ImageListHash = hash(repr(ImageList).encode('utf-8'))
+    if exists('./data/hashes'):
+        with open('./data/hashes', 'r') as HashesFile:
+            OldImageListHash = int(HashesFile.read())
+        if ImageListHash != OldImageListHash:
+            ProcessImageList(ImageList, ImageListHash)
+    else:
+        ProcessImageList(ImageList, ImageListHash)
+
 def menu():
     Format = int(input('Choose the format[0:html,1:txt]: '))
+    GetImagesList()
     SelectedChats = PrintChatList()
     if Format == 0: HTMLExport(SelectedChats)
     elif Format == 1: PlainTextExport(SelectedChats)
