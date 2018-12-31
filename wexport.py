@@ -5,7 +5,11 @@ from datetime import datetime
 from shutil import copytree, copyfile
 from glob import glob
 from PIL import Image
+from sys import platform as SystemPlatform
 import shelve
+import subprocess
+
+SUBPROCESS_FFMPEG_EXECUTABLE = 'ffmpeg_' + SystemPlatform
 
 ChatList = ['null']
 ContactNames = {}
@@ -221,7 +225,7 @@ def HTMLExport(ChatsToExport):
                         \t\t\t\t\t\t\t<div class="video_duration"> \n\
                         $DURATION \n\
                         \t\t\t\t\t\t\t</div> \n\
-                        \t\t\t\t\t\t\t<img class="video_file" src="./video_files/$THUMBNAIL" style="width: 260px; height: 145px"/> \n\
+                        \t\t\t\t\t\t\t<img class="video_file" src="./video_files/$THUMBNAIL" style="width: 146px; height: $HEIGHTpx"/> \n\
                         \t\t\t\t\t\t</a>\n'
     ChatCount = 0
     MessagesTotalCount = 0
@@ -272,6 +276,7 @@ def HTMLExport(ChatsToExport):
             
             # NOTE(dave): media management
             # TODO(dave): handle cases where filename is not found from blob(video, voice?, image?)
+            FIXED_WIDTH = 146
             if Message[MESSAGE_TYPE] == TYPE_DELETED:
                 Content = b'~deleted message~'
             elif Message[MESSAGE_TYPE] == TYPE_VIDEO:
@@ -283,10 +288,20 @@ def HTMLExport(ChatsToExport):
                 DestFile = MessagesOutPath + 'video_files/' + VideoName
                 if exists(SourceFile):
                     copyfile(SourceFile, DestFile)
+                if exists(DestFile):
+                    Process = subprocess.Popen([SUBPROCESS_FFMPEG_EXECUTABLE, '-y', '-i', 
+                                    DestFile, '-ss',
+                                    '00:00:00.000', '-vframes', '1',
+                                    DestFile.replace('.mp4', '_thumb.jpg'),
+                                    '-loglevel', 'quiet'])
+                    Thumbnail = Image.open(DestFile.replace('.mp4', '_thumb.jpg'))
+                    W, H = Thumbnail.size
+                    Ratio = float(W) / float(H)
                 MediaHTML = VideoHTMLSource.\
                     replace(b'$FILENAME', VideoName.encode('utf-8'), 1).\
                     replace(b'$DURATION', '{0}:00'.format(Duration).encode('utf-8'), 1).\
-                    replace(b'$THUMBNAIL', VideoName.encode('utf-8'), 1)
+                    replace(b'$THUMBNAIL', VideoName.replace('.mp4', '_thumb.jpg').encode('utf-8'), 1).\
+                    replace(b'$HEIGHT', str(FIXED_WIDTH / Ratio).encode('utf-8'), 1)
             elif Message[MESSAGE_TYPE] == TYPE_VOICE:
                 filename = str(Message[MESSAGE_FILENAME])
                 SourceFile = './data/' + filename[filename.find('Media/'):filename.find('opus')+4]
@@ -300,7 +315,6 @@ def HTMLExport(ChatsToExport):
                     replace(b'$DURATION', '{0}:00'.format(Duration).encode('utf-8'), 1)
             elif Message[MESSAGE_TYPE] == TYPE_IMAGE:
                 # TODO(dave): Maybe add thumbnails
-                FIXED_WIDTH = 146
                 filename = str(Message[MESSAGE_FILENAME])
                 SourceFile = './data/' + filename[filename.find('Media/'):filename.find('jpg')+3]
                 ImageName = SourceFile[-23:]
