@@ -235,7 +235,9 @@ def HTMLExport(ChatsToExport):
         if ChatID in ContactNames: ChatName = ContactNames[ChatID].encode('utf-8')
         MessagesOutPath = OutPath + 'chats/chat_' + str(ChatCount) + '/'
         if not exists(MessagesOutPath):
-            makedirs(MessagesOutPath)
+            makedirs(MessagesOutPath + '/photos')
+            makedirs(MessagesOutPath + '/video_files')
+            makedirs(MessagesOutPath + '/voice_messages')
 
         
         Messages = GetMessages(ChatID)
@@ -276,6 +278,7 @@ def HTMLExport(ChatsToExport):
             
             # NOTE(dave): media management
             # TODO(dave): handle cases where filename is not found from blob(video, voice?, image?)
+            # TODO(dave): sticker support
             FIXED_WIDTH = 146
             if Message[MESSAGE_TYPE] == TYPE_DELETED:
                 Content = b'~deleted message~'
@@ -289,7 +292,7 @@ def HTMLExport(ChatsToExport):
                 if exists(SourceFile):
                     copyfile(SourceFile, DestFile)
                 if exists(DestFile):
-                    Process = subprocess.Popen([SUBPROCESS_FFMPEG_EXECUTABLE, '-y', '-i', 
+                    subprocess.run([SUBPROCESS_FFMPEG_EXECUTABLE, '-y', '-i', 
                                     DestFile, '-ss',
                                     '00:00:00.000', '-vframes', '1',
                                     DestFile.replace('.mp4', '_thumb.jpg'),
