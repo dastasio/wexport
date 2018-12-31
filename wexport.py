@@ -31,7 +31,7 @@ def GetGroupMembers(ChatID, Cursor):
 
 def GetRawMessages(ChatID, Cursor):
     # NOTE(dave): returning both message data and quoted messages' info
-    Cursor.execute('SELECT timestamp,data,key_from_me,quoted_row_id,key_id,remote_resource,media_wa_type,thumb_image,media_caption FROM messages WHERE key_remote_jid="{ID}" ORDER BY _id ASC'.format(ID=ChatID))
+    Cursor.execute('SELECT timestamp,data,key_from_me,quoted_row_id,key_id,remote_resource,media_wa_type,thumb_image,media_caption,media_duration FROM messages WHERE key_remote_jid="{ID}" ORDER BY _id ASC'.format(ID=ChatID))
     RawMessages = Cursor.fetchall()
     Cursor.execute('SELECT _id,key_id FROM messages_quotes WHERE key_remote_jid="{ID}" ORDER BY _id ASC'.format(ID=ChatID))
     RawQuotedMessages = Cursor.fetchall()
@@ -52,6 +52,7 @@ def GetMessages(ChatID):
     MESSAGE_MEDIA_TYPE = 6
     MESSAGE_MEDIA_NAME = 7
     MESSAGE_MEDIA_CAPTION = 8
+    MESSAGE_MEDIA_DURATION = 9
     QUOTE_ID = 0
     QUOTE_KEY_ID = 1
 
@@ -88,7 +89,8 @@ def GetMessages(ChatID):
             except: pass
             if int(Message[MESSAGE_MEDIA_TYPE]):
                 MESSAGE_CONTENT = MESSAGE_MEDIA_CAPTION
-            Messages.append([int(Message[MESSAGE_MEDIA_TYPE]), Sender, Message[MESSAGE_CONTENT], Message[MESSAGE_TIMESTAMP], QuotedMessage, -1, Message[MESSAGE_MEDIA_NAME]])
+            Messages.append([int(Message[MESSAGE_MEDIA_TYPE]), Sender, Message[MESSAGE_CONTENT], Message[MESSAGE_TIMESTAMP],
+                            QuotedMessage, -1, Message[MESSAGE_MEDIA_NAME], Message[MESSAGE_MEDIA_DURATION]])
             MESSAGE_CONTENT = 1
             # NOTE(dave): Message Struct
             # [0]Media type, [1]Sender, [2]Content, [3]Timestamp, [4]Quoted message index, 
@@ -117,11 +119,12 @@ def GetMessages(ChatID):
             except: pass
             if int(Message[MESSAGE_MEDIA_TYPE]):
                 MESSAGE_CONTENT = MESSAGE_MEDIA_CAPTION
-            Messages.append([int(Message[MESSAGE_MEDIA_TYPE]), Sender, Message[MESSAGE_CONTENT], Message[MESSAGE_TIMESTAMP], QuotedMessage, -1, Message[MESSAGE_MEDIA_NAME]])
+            Messages.append([int(Message[MESSAGE_MEDIA_TYPE]), Sender, Message[MESSAGE_CONTENT], Message[MESSAGE_TIMESTAMP],
+                            QuotedMessage, -1, Message[MESSAGE_MEDIA_NAME], Message[MESSAGE_MEDIA_DURATION]])
             MESSAGE_CONTENT = 1
             # NOTE(dave): Message Struct
             # [0]Media type, [1]Sender, [2]Content, [3]Timestamp, [4]Quoted message index, 
-            # [5]Message Unique ID (to be filled later), [6]Media filename
+            # [5]Message Unique ID (to be filled later), [6]Media filename, [7]Media duration
     msgstore.close()
     return Messages
 
@@ -134,6 +137,7 @@ def HTMLExport(ChatsToExport):
     MESSAGE_QUOTED = 4
     MESSAGE_ID = 5
     MESSAGE_FILENAME = 6
+    MESSAGE_DURATION = 7
     TYPE_IMAGE = 1
     TYPE_VOICE = 2
     TYPE_VIDEO = 3
@@ -267,18 +271,33 @@ def HTMLExport(ChatsToExport):
                     replace(b'$QUOTED_ID', str(QuotedID).encode('utf-8'), 2)
             
             # NOTE(dave): media management
+            # TODO(dave): handle cases where filename is not found from blob(video, voice?, image?)
             if Message[MESSAGE_TYPE] == TYPE_DELETED:
                 Content = b'~deleted message~'
             elif Message[MESSAGE_TYPE] == TYPE_VIDEO:
-                # TODO(dave): Insert video duration
+                # TODO(dave): generate thumbnail
+                filename = str(Message[MESSAGE_FILENAME])
+                SourceFile = './data/' + filename[filename.find('Media/'):filename.find('mp4')+3]
+                VideoName = SourceFile[-23:]
+                Duration = Message[MESSAGE_DURATION]
+                DestFile = MessagesOutPath + 'video_files/' + VideoName
+                if exists(SourceFile):
+                    copyfile(SourceFile, DestFile)
                 MediaHTML = VideoHTMLSource.\
-                    replace(b'$FILENAME', b'test.mp4', 1).\
-                    replace(b'$DURATION', b'00:00', 1).\
-                    replace(b'$THUMBNAIL', b'test_thumb.jpg', 1)
+                    replace(b'$FILENAME', VideoName.encode('utf-8'), 1).\
+                    replace(b'$DURATION', '{0}:00'.format(Duration).encode('utf-8'), 1).\
+                    replace(b'$THUMBNAIL', VideoName.encode('utf-8'), 1)
             elif Message[MESSAGE_TYPE] == TYPE_VOICE:
-                # TODO(dave): Insert voice duration
+                filename = str(Message[MESSAGE_FILENAME])
+                SourceFile = './data/' + filename[filename.find('Media/'):filename.find('opus')+4]
+                Duration = Message[MESSAGE_DURATION]
+                VoiceName = SourceFile[-24:]
+                DestFile = MessagesOutPath + 'voice_messages/' + VoiceName
+                if exists(SourceFile):
+                    copyfile(SourceFile, DestFile)
                 MediaHTML = VoiceHTMLSource.\
-                    replace(b'$FILENAME', b'test.opus', 1)
+                    replace(b'$FILENAME', VoiceName.encode('utf-8'), 1).\
+                    replace(b'$DURATION', '{0}:00'.format(Duration).encode('utf-8'), 1)
             elif Message[MESSAGE_TYPE] == TYPE_IMAGE:
                 # TODO(dave): Maybe add thumbnails
                 FIXED_WIDTH = 146
