@@ -418,10 +418,14 @@ def HTMLExport(ChatsToExport):
     copyfile(TemplatePath+'export_results.html', OutPath+'export_results.html')
 
 def PlainTextExport(ChatsToExport):
-    MESSAGE_SENDER = 0
-    MESSAGE_CONTENT = 1
-    MESSAGE_TIMESTAMP = 2
-    MESSAGE_QUOTED = 3
+    MESSAGE_TYPE = 0
+    MESSAGE_SENDER = 1
+    MESSAGE_CONTENT = 2
+    MESSAGE_TIMESTAMP = 3
+    MESSAGE_QUOTED = 4
+    MESSAGE_ID = 5
+    MESSAGE_FILENAME = 6
+    MESSAGE_DURATION = 7
     
     for ChatID in ChatsToExport:
         OutPath = './exported/'
